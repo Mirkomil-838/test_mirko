@@ -190,8 +190,8 @@ class UserHandlers:
             f"🔢 Savollar: {len(validated_questions)} ta\n\n"
             f"📝 Ko'rsatma:\n"
             f"• Har bir savolga javob bering\n"
-            f"• Test oxirida natijangiz ko'rsatiladi\n"
-            f"• Orqaga qaytish imkoni yo'q\n\n"
+            f"• Darhol natija ko'rsatiladi\n"
+            f"• Keyingi savolga o'ting\n\n"
             f"🎓 Omad!"
         )
         
@@ -262,7 +262,7 @@ class UserHandlers:
         )
     
     async def handle_answer(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Javobni qayta ishlash"""
+        """Javobni qayta ishlash - real vaqtda natijani ko'rsatish"""
         query = update.callback_query
         user_id = query.from_user.id
         data_parts = query.data.split('_')
@@ -271,8 +271,6 @@ class UserHandlers:
         question_index = int(data_parts[2])
         selected_option = int(data_parts[3])
         correct_index = int(data_parts[4])
-        
-        await query.answer()
         
         session = self.db.get_user_session(user_id, subject_id)
         if not session:
@@ -295,19 +293,75 @@ class UserHandlers:
         if is_correct:
             session['score'] += 1
         
+        # REAL VAQTDA NATIJANI KO'RSATISH
+        current_question = session['current_question']
+        total_questions = session['total_questions']
+        
+        # Variantlarni olish
+        options = question_data['options'].copy()
+        shuffled_indices = list(range(len(options)))
+        random.shuffle(shuffled_indices)
+        shuffled_options = [options[i] for i in shuffled_indices]
+        
+        # Natija xabarini tayyorlash
+        if is_correct:
+            result_icon = "✅"
+            result_text = "**To'g'ri!** 🎉"
+        else:
+            result_icon = "❌"
+            correct_answer_letter = chr(65 + correct_index)  # A, B, C, D
+            correct_answer_text = shuffled_options[correct_index]
+            result_text = f"**Noto'g'ri!** 😕\n\n**To'g'ri javob:** {correct_answer_letter}) {correct_answer_text}"
+        
+        # Progress
+        progress = f"({current_question + 1}/{total_questions})"
+        
+        # Yangilangan savol matni
+        question_display = f"{result_icon} {progress} {question_data['question']}\n\n{result_text}"
+        
+        # Keyingi savol tugmasi
+        keyboard = [[InlineKeyboardButton("➡️ Keyingi savol", callback_data=f"next_{subject_id}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Xabarni yangilash
+        await query.edit_message_text(
+            text=question_display,
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+        
+        # Keyingi savolga o'tish uchun callback ni kutish
+        context.user_data['waiting_for_next'] = {
+            'subject_id': subject_id,
+            'user_id': user_id
+        }
+    
+    async def handle_next_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Keyingi savolga o'tish"""
+        query = update.callback_query
+        user_id = query.from_user.id
+        subject_id = int(query.data.split('_')[1])
+        
+        await query.answer()
+        
         # Keyingi savol
-        session['current_question'] += 1
+        session = self.db.get_user_session(user_id, subject_id)
+        if session:
+            session['current_question'] += 1
+            
+            # Yangilangan sessionni saqlash
+            self.db.save_user_session(user_id, subject_id,
+                                    session['questions'],
+                                    session['current_question'],
+                                    session['answers'],
+                                    session['score'],
+                                    session['total_questions'])
+            
+            # Keyingi savolni yuborish yoki natijalarni ko'rsatish
+            await self.send_question(context, user_id, subject_id)
         
-        # Yangilangan sessionni saqlash
-        self.db.save_user_session(user_id, subject_id,
-                                session['questions'],
-                                session['current_question'],
-                                session['answers'],
-                                session['score'],
-                                session['total_questions'])
-        
-        # Keyingi savolni yuborish yoki natijalarni ko'rsatish
-        await self.send_question(context, user_id, subject_id)
+        # User datani tozalash
+        context.user_data.pop('waiting_for_next', None)
     
     async def show_results(self, context: ContextTypes.DEFAULT_TYPE, user_id: int, subject_id: int):
         """Natijalarni ko'rsatish"""
@@ -380,19 +434,17 @@ class UserHandlers:
 3. Kerakli fanni tanlang
 4. Testlar sonini tanlang (10, 20, 30, 40, 60 yoki hammasi)
 5. Savollarga javob bering
-6. Natijangizni ko'ring
+6. Darhol natijani ko'ring
+7. Keyingi savolga o'ting
 
 📝 **Eslatmalar:**
-• Har bir savolga faqat bitta javob berishingiz mumkin
-• Orqaga qaytish imkoni yo'q
-• Test oxirida natijangiz ko'rsatiladi
-• Har doim birinchi variant (A) to'g'ri javob hisoblanadi
+• Har bir savolga javob bergach, natija darhol ko'rsatiladi
+• To'g'ri javob: ✅ + "To'g'ri!"
+• Noto'g'ri javob: ❌ + to'g'ri javob ko'rsatiladi
+• Keyingi savolga o'tish uchun "Keyingi savol" tugmasini bosing
 
 🆘 **Muammolar bo'lsa:**
 Agar test ishlashda muammo bo'lsa, /start buyrug'i orqali qaytadan boshlang.
-
-📞 **Admin bilan bog'lanish:**
-Agar doimiy muammolar bo'lsa, admin bilan bog'lanishingiz mumkin.
         """
         
         await update.message.reply_text(help_text, parse_mode='Markdown')
@@ -401,9 +453,6 @@ Agar doimiy muammolar bo'lsa, admin bilan bog'lanishingiz mumkin.
         """Foydalanuvchi statistikasi"""
         user_id = update.message.from_user.id
         user_name = update.message.from_user.first_name
-        
-        # Bu yerda foydalanuvchi statistikasini olish mumkin
-        # Hozircha oddiy xabar qaytaramiz
         
         stats_text = f"""
 📊 **Statistika**
