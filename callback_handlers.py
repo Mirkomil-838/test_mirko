@@ -17,42 +17,52 @@ class CallbackHandlers:
         query = update.callback_query
         data = query.data
         
-        if data == "main_menu":
-            await self.start_callback(query, context)
-        elif data == "admin_add_subject":
-            await query.edit_message_text(
-                "📁 Yangi fan qo'shish uchun:\n"
-                "1. Fan nomini kiriting: /addsubject [Fan nomi]\n"
-                "2. So'ngra Word yoki PDF fayl yuboring"
-            )
-        elif data == "admin_management":
-            await self.admin_handlers.admin_management(update, context)
-        elif data == "add_admin":
-            await query.edit_message_text(
-                "➕ Yangi admin qo'shish uchun:\n"
-                "Quyidagi formatda buyruq yuboring:\n"
-                "/addadmin [ID] [Username]\n\n"
-                "Masalan: /addadmin 123456789 YangiAdmin"
-            )
-        elif data == "remove_admin":
-            await query.edit_message_text(
-                "➖ Admin o'chirish uchun:\n"
-                "Quyidagi formatda buyruq yuboring:\n"
-                "/removeadmin [ID]\n\n"
-                "Masalan: /removeadmin 123456789"
-            )
-        elif data == "admin_view_results":
-            await query.edit_message_text("📊 Natijalar ko'rsatiladi...")
-        elif data == "user_start_test":
-            await self.user_handlers.show_subjects(update, context)
-        elif data.startswith("subject_"):
-            await self.user_handlers.handle_subject_selection(update, context)
-        elif data.startswith("count_"):
-            await self.user_handlers.handle_question_count(update, context)
-        elif data.startswith("ans_"):
-            await self.user_handlers.handle_answer(update, context)
-        else:
-            await query.answer("Noma'lum buyruq!")
+        logger.info(f"Callback received: {data}")
+        
+        try:
+            if data == "main_menu":
+                await self.start_callback(query, context)
+            elif data == "admin_add_subject":
+                await query.edit_message_text(
+                    "📁 Yangi fan qo'shish uchun:\n"
+                    "1. Fan nomini kiriting: /addsubject [Fan nomi]\n"
+                    "2. So'ngra Word yoki PDF fayl yuboring"
+                )
+            elif data == "admin_management":
+                await self.admin_handlers.admin_management(update, context)
+            elif data == "add_admin":
+                await query.edit_message_text(
+                    "➕ Yangi admin qo'shish uchun:\n"
+                    "Quyidagi formatda buyruq yuboring:\n"
+                    "/addadmin [ID] [Username]\n\n"
+                    "Masalan: /addadmin 123456789 YangiAdmin"
+                )
+            elif data == "remove_admin":
+                await query.edit_message_text(
+                    "➖ Admin o'chirish uchun:\n"
+                    "Quyidagi formatda buyruq yuboring:\n"
+                    "/removeadmin [ID]\n\n"
+                    "Masalan: /removeadmin 123456789"
+                )
+            elif data == "admin_view_results":
+                await query.edit_message_text("📊 Natijalar ko'rsatiladi...")
+            elif data == "user_start_test":
+                await self.user_handlers.show_subjects(update, context)
+            elif data.startswith("subject_"):
+                await self.user_handlers.handle_subject_selection(update, context)
+            elif data.startswith("count_"):
+                await self.user_handlers.handle_question_count(update, context)
+            elif data.startswith("ans_"):
+                await self.user_handlers.handle_answer(update, context)
+            elif data.startswith("next_"):
+                await self.user_handlers.handle_next_question(update, context)
+            else:
+                await query.answer("Noma'lum buyruq!", show_alert=True)
+                logger.warning(f"Noma'lum callback data: {data}")
+        
+        except Exception as e:
+            logger.error(f"Callback处理错误: {e}")
+            await query.answer("Xatolik yuz berdi!", show_alert=True)
     
     async def start_callback(self, query, context):
         user_id = query.from_user.id
