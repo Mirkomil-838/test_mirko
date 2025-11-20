@@ -28,8 +28,6 @@ class UserHandlers:
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(text, reply_markup=reply_markup)
             
-            logger.info(f"User {user_id} started the bot")
-            
         except Exception as e:
             logger.error(f"Start command error: {e}")
             await update.message.reply_text("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
@@ -62,8 +60,6 @@ class UserHandlers:
                 "📚 Mavjud fanlar:\n\nQuyidagi fanlardan birini tanlang:",
                 reply_markup=reply_markup
             )
-            
-            logger.info(f"User {query.from_user.id} viewed subjects list")
             
         except Exception as e:
             logger.error(f"Show subjects error: {e}")
@@ -98,8 +94,6 @@ class UserHandlers:
                 f"ℹ️ Eslatma: Agar faylda kamroq savol bo'lsa, mavjud savollar soni ko'rsatiladi.",
                 reply_markup=reply_markup
             )
-            
-            logger.info(f"User {user_id} selected subject {subject_id}")
             
         except Exception as e:
             logger.error(f"Subject selection error: {e}")
@@ -207,8 +201,6 @@ class UserHandlers:
             # Birinchi savolni yuborish
             await self.send_question(context, user_id, subject_id)
             
-            logger.info(f"User {user_id} started test with {len(validated_questions)} questions")
-            
         except Exception as e:
             logger.error(f"Question count selection error: {e}")
             await update.callback_query.edit_message_text("❌ Xatolik yuz berdi. Iltimos, qayta urinib ko'ring.")
@@ -241,7 +233,12 @@ class UserHandlers:
             random.shuffle(shuffled_indices)
             
             shuffled_options = [options[i] for i in shuffled_indices]
-            new_correct_index = shuffled_indices.index(question['correct_answer'])
+            
+            # To'g'ri javob indeksini topish (aralashtirilgan ro'yxatda)
+            # Har doim birinchi variant (0) to'g'ri javob
+            new_correct_index = shuffled_indices.index(0)
+            
+            logger.info(f"Question {current_q}: original correct index: 0, shuffled correct index: {new_correct_index}")
             
             # Klaviatura yaratish
             keyboard = []
@@ -277,8 +274,6 @@ class UserHandlers:
                 reply_markup=reply_markup
             )
             
-            logger.info(f"Sent question {current_q + 1} to user {user_id}")
-            
         except Exception as e:
             logger.error(f"Send question error: {e}")
             await context.bot.send_message(
@@ -300,9 +295,9 @@ class UserHandlers:
                 return
             
             subject_id = int(data_parts[1])
-            question_index = int(data_parts[2])
-            selected_option = int(data_parts[3])
-            correct_index = int(data_parts[4])
+            question_index = int(data_parts[2])  # Savol indeksi
+            selected_option = int(data_parts[3]) # Tanlangan variant indeksi
+            correct_index = int(data_parts[4])   # To'g'ri javob indeksi
             
             session = self.db.get_user_session(user_id, subject_id)
             if not session:
@@ -311,6 +306,8 @@ class UserHandlers:
             
             # Javobni tekshirish
             is_correct = (selected_option == correct_index)
+            
+            logger.info(f"User {user_id} selected: {selected_option}, correct: {correct_index}, is_correct: {is_correct}")
             
             # Javob ma'lumotlarini saqlash
             question_data = session['questions'][question_index]
@@ -329,21 +326,30 @@ class UserHandlers:
             current_question = session['current_question']
             total_questions = session['total_questions']
             
-            # Variantlarni olish
-            options = question_data['options'].copy()
-            shuffled_indices = list(range(len(options)))
+            # Asl variantlarni olish (aralashtirilmasdan)
+            original_options = question_data['options'].copy()
+            
+            # Variantlarni aralashtirish
+            shuffled_indices = list(range(len(original_options)))
             random.shuffle(shuffled_indices)
-            shuffled_options = [options[i] for i in shuffled_indices]
+            shuffled_options = [original_options[i] for i in shuffled_indices]
+            
+            # To'g'ri javobni topish (aralashtirilgan ro'yxatda)
+            new_correct_index = shuffled_indices.index(0)  # 0 - har doim to'g'ri javob indeksi
+            
+            # Tanlangan javob matni
+            selected_answer_text = shuffled_options[selected_option]
+            selected_answer_letter = chr(65 + selected_option)  # A, B, C, D
             
             # Natija xabarini tayyorlash
             if is_correct:
                 result_icon = "✅"
-                result_text = "**To'g'ri!** 🎉"
+                result_text = f"**To'g'ri!** 🎉\n\n**Sizning javobingiz:** {selected_answer_letter}) {selected_answer_text}"
             else:
                 result_icon = "❌"
-                correct_answer_letter = chr(65 + correct_index)  # A, B, C, D
+                correct_answer_letter = chr(65 + correct_index)
                 correct_answer_text = shuffled_options[correct_index]
-                result_text = f"**Noto'g'ri!** 😕\n\n**To'g'ri javob:** {correct_answer_letter}) {correct_answer_text}"
+                result_text = f"**Noto'g'ri!** 😕\n\n**Sizning javobingiz:** {selected_answer_letter}) {selected_answer_text}\n**To'g'ri javob:** {correct_answer_letter}) {correct_answer_text}"
             
             # Progress
             progress = f"({current_question + 1}/{total_questions})"
@@ -369,8 +375,6 @@ class UserHandlers:
                                     session['answers'],
                                     session['score'],
                                     session['total_questions'])
-            
-            logger.info(f"User {user_id} answered question {current_question + 1}, correct: {is_correct}")
             
         except Exception as e:
             logger.error(f"Handle answer error: {e}")
@@ -412,8 +416,6 @@ class UserHandlers:
             
             # Keyingi savolni yuborish
             await self.send_question(context, user_id, subject_id)
-            
-            logger.info(f"User {user_id} moved to question {session['current_question']}")
             
         except Exception as e:
             logger.error(f"Next question error: {e}")
@@ -480,8 +482,6 @@ class UserHandlers:
             # Sessionni tozalash
             self.db.delete_user_session(user_id, subject_id)
             
-            logger.info(f"User {user_id} completed test with score {score}/{total} ({percentage}%)")
-            
         except Exception as e:
             logger.error(f"Show results error: {e}")
             await context.bot.send_message(
@@ -506,8 +506,8 @@ class UserHandlers:
 
 📝 **Eslatmalar:**
 • Har bir savolga javob bergach, natija darhol ko'rsatiladi
-• To'g'ri javob: ✅ + "To'g'ri!"
-• Noto'g'ri javob: ❌ + to'g'ri javob ko'rsatiladi
+• To'g'ri javob: ✅ + "To'g'ri!" + sizning javobingiz
+• Noto'g'ri javob: ❌ + sizning javobingiz + to'g'ri javob
 • Keyingi savolga o'tish uchun "Keyingi savol" tugmasini bosing
 
 🆘 **Muammolar bo'lsa:**
