@@ -225,20 +225,27 @@ class UserHandlers:
             
             question = questions[current_q]
             
-            # Variantlarni aralashtirish (lekin to'g'ri javobni saqlab qolish)
+            # Variantlarni aralashtirish
             options = question['options'].copy()
             
-            # Variantlarni aralashtirish
-            shuffled_indices = list(range(len(options)))
-            random.shuffle(shuffled_indices)
+            # Variantlarni aralashtirish va indekslarni saqlash
+            original_indices = list(range(len(options)))
+            random.shuffle(original_indices)
             
-            shuffled_options = [options[i] for i in shuffled_indices]
+            shuffled_options = [options[i] for i in original_indices]
             
             # To'g'ri javob indeksini topish (aralashtirilgan ro'yxatda)
             # Har doim birinchi variant (0) to'g'ri javob
-            new_correct_index = shuffled_indices.index(0)
+            new_correct_index = original_indices.index(0)
             
             logger.info(f"Question {current_q}: original correct index: 0, shuffled correct index: {new_correct_index}")
+            logger.info(f"Original indices: {original_indices}")
+            logger.info(f"Shuffled options: {shuffled_options}")
+            
+            # Aralashtirilgan variantlarni sessionga saqlash
+            session['questions'][current_q]['shuffled_options'] = shuffled_options
+            session['questions'][current_q]['shuffled_indices'] = original_indices
+            session['questions'][current_q]['shuffled_correct_index'] = new_correct_index
             
             # Klaviatura yaratish
             keyboard = []
@@ -274,6 +281,14 @@ class UserHandlers:
                 reply_markup=reply_markup
             )
             
+            # Sessionni saqlash
+            self.db.save_user_session(user_id, subject_id,
+                                    session['questions'],
+                                    session['current_question'],
+                                    session['answers'],
+                                    session['score'],
+                                    session['total_questions'])
+            
         except Exception as e:
             logger.error(f"Send question error: {e}")
             await context.bot.send_message(
@@ -296,8 +311,8 @@ class UserHandlers:
             
             subject_id = int(data_parts[1])
             question_index = int(data_parts[2])  # Savol indeksi
-            selected_option = int(data_parts[3]) # Tanlangan variant indeksi
-            correct_index = int(data_parts[4])   # To'g'ri javob indeksi
+            selected_option = int(data_parts[3]) # Tanlangan variant indeksi (aralashtirilgan)
+            correct_index = int(data_parts[4])   # To'g'ri javob indeksi (aralashtirilgan)
             
             session = self.db.get_user_session(user_id, subject_id)
             if not session:
@@ -309,6 +324,24 @@ class UserHandlers:
             
             logger.info(f"User {user_id} selected: {selected_option}, correct: {correct_index}, is_correct: {is_correct}")
             
+            # Aralashtirilgan variantlarni olish
+            shuffled_options = session['questions'][question_index].get('shuffled_options', [])
+            
+            if not shuffled_options:
+                # Agar aralashtirilgan variantlar saqlanmagan bo'lsa, qayta aralashtirish
+                original_options = session['questions'][question_index]['options'].copy()
+                shuffled_indices = list(range(len(original_options)))
+                random.shuffle(shuffled_indices)
+                shuffled_options = [original_options[i] for i in shuffled_indices]
+            
+            # Tanlangan javob matni
+            selected_answer_text = shuffled_options[selected_option]
+            selected_answer_letter = chr(65 + selected_option)  # A, B, C, D
+            
+            # To'g'ri javob matni
+            correct_answer_text = shuffled_options[correct_index]
+            correct_answer_letter = chr(65 + correct_index)
+            
             # Javob ma'lumotlarini saqlash
             question_data = session['questions'][question_index]
             session['answers'].append({
@@ -316,7 +349,9 @@ class UserHandlers:
                 'selected': selected_option,
                 'correct': correct_index,
                 'is_correct': is_correct,
-                'options': question_data['options']
+                'options': shuffled_options,
+                'selected_text': selected_answer_text,
+                'correct_text': correct_answer_text
             })
             
             if is_correct:
@@ -326,29 +361,12 @@ class UserHandlers:
             current_question = session['current_question']
             total_questions = session['total_questions']
             
-            # Asl variantlarni olish (aralashtirilmasdan)
-            original_options = question_data['options'].copy()
-            
-            # Variantlarni aralashtirish
-            shuffled_indices = list(range(len(original_options)))
-            random.shuffle(shuffled_indices)
-            shuffled_options = [original_options[i] for i in shuffled_indices]
-            
-            # To'g'ri javobni topish (aralashtirilgan ro'yxatda)
-            new_correct_index = shuffled_indices.index(0)  # 0 - har doim to'g'ri javob indeksi
-            
-            # Tanlangan javob matni
-            selected_answer_text = shuffled_options[selected_option]
-            selected_answer_letter = chr(65 + selected_option)  # A, B, C, D
-            
             # Natija xabarini tayyorlash
             if is_correct:
                 result_icon = "✅"
                 result_text = f"**To'g'ri!** 🎉\n\n**Sizning javobingiz:** {selected_answer_letter}) {selected_answer_text}"
             else:
                 result_icon = "❌"
-                correct_answer_letter = chr(65 + correct_index)
-                correct_answer_text = shuffled_options[correct_index]
                 result_text = f"**Noto'g'ri!** 😕\n\n**Sizning javobingiz:** {selected_answer_letter}) {selected_answer_text}\n**To'g'ri javob:** {correct_answer_letter}) {correct_answer_text}"
             
             # Progress
